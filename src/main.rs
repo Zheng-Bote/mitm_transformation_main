@@ -72,9 +72,9 @@ struct IpcClient {
 impl IpcClient {
     fn send(&self, event_type: &str, status: Option<&str>, message: &str, progress: Option<u8>) {
         let mut event = json!({"run_id": self.run_id, "type": event_type, "message": self.message(message)});
-        if event_type == "audit" { event["component"] = Value::String(self.component.clone()); }
-        if let Some(status) = status { event["status"] = Value::String(status.into()); }
-        if let Some(progress) = progress { event["progress"] = json!(progress); }
+        event["component"] = Value::String(self.component.clone());
+        event["status"] = Value::String(status.unwrap_or("unknown").into());
+        event["progress"] = json!(progress.unwrap_or(0));
         if let Err(error) = send_socket_json(&self.socket_path, &event) {
             eprintln!("[IPC ERROR] Failed to send scheduler event: {error}");
         }
@@ -108,7 +108,14 @@ struct TransformationError {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(e) = run().await {
+        eprintln!("Transformation Engine failed: {:?}", e);
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
     let (scheduler_db_config, scheduler_master_key) = fetch_scheduler_credentials().unwrap_or_else(|error| {
         if env::var_os("RUN_ID").is_some() && env::var_os("SCHEDULER_SOCKET_PATH").is_some() {
             eprintln!("[IPC WARNING] Failed to get credentials from scheduler: {error}");
@@ -138,8 +145,9 @@ async fn main() -> Result<()> {
     let wrapped_key = match topic_wrapped_key(&pool, &args.topic).await {
         Ok(key) => key,
         Err(error) => {
-            eprintln!("Warning: Failed to fetch wrapped key for topic {}: {error}", args.topic);
-            if let Some(ipc) = &ipc { ipc.send("audit", None, &format!("Warning: Failed to fetch wrapped key: {error}"), None); }
+            let msg = format!("Warning: Failed to fetch wrapped key for topic {}: {}", args.topic, error);
+            eprintln!("{}", msg);
+            if let Some(ipc) = &ipc { ipc.send("audit", None, &msg, None); }
             generate_wrapped_dek(&master_key)?
         }
     };
@@ -148,40 +156,60 @@ async fn main() -> Result<()> {
     let mut processed = 0_usize;
     let shutdown = signal::ctrl_c();
     tokio::pin!(shutdown);
-    loop {
-        tokio::select! {
-            _ = &mut shutdown => {
-                eprintln!("Shutting down gracefully...");
-                break;
-            }
-            claimed = claim_aggregated_fragments(&pool, &args.topic, &args.required_sources, args.batch_size, args.retry_failed) => {
-                let fragments = claimed?;
-                if fragments.is_empty() { break; }
-                for fragment in fragments {
-                    while tasks.len() >= args.workers {
-                        if let Some(result) = tasks.join_next().await { result??; }
-                    }
-                    processed += 1;
-                    if processed % args.batch_size == 0 {
-                        let msg = format!("Progress: {} records processed", processed);
-                        if let Some(ipc) = &ipc {
-                            ipc.send("status", Some("processing"), &msg, Some(0));
-                            ipc.send("audit", None, &msg, None);
+    
+    let res = async {
+        loop {
+            tokio::select! {
+                _ = &mut shutdown => {
+                    eprintln!("Shutting down gracefully...");
+                    break;
+                }
+                claimed = claim_aggregated_fragments(&pool, &args.topic, &args.required_sources, args.batch_size, args.retry_failed) => {
+                    let fragments = claimed?;
+                    if fragments.is_empty() { break; }
+                    for fragment in fragments {
+                        while tasks.len() >= args.workers {
+                            if let Some(result) = tasks.join_next().await { result??; }
                         }
+                        processed += 1;
+                        if processed % args.batch_size == 0 {
+                            let msg = format!("Progress: {} records processed", processed);
+                            if let Some(ipc) = &ipc {
+                                ipc.send("status", Some("processing"), &msg, Some(0));
+                                ipc.send("audit", None, &msg, None);
+                            }
+                        }
+                        tasks.spawn(process_aggregate(pool.clone(), rules.clone(), master_key.clone(), wrapped_key.clone(), fragment));
                     }
-                    tasks.spawn(process_aggregate(pool.clone(), rules.clone(), master_key.clone(), wrapped_key.clone(), fragment));
                 }
             }
         }
+        while let Some(result) = tasks.join_next().await { result??; }
+        Ok(())
+    }.await;
+
+    match res {
+        Ok(_) => {
+            let message = format!("Transformation Batch Job finished successfully. {processed} records processed");
+            eprintln!("{message}");
+            if let Some(ipc) = &ipc {
+                ipc.send("status", Some("finished"), &message, Some(100));
+                ipc.send("audit", None, &message, None);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            let message = format!("Transformation Batch Job failed: {}", e);
+            eprintln!("{}", message);
+            if let Some(ipc) = &ipc {
+                ipc.send("status", Some("failed"), &message, None);
+                ipc.send("audit", None, &message, None);
+            }
+            let _ = sqlx::query("INSERT INTO system_logs (level, component, message) VALUES ('ERROR', 'transformation-engine', $1)")
+                .bind(&message).execute(&*pool).await;
+            Err(e)
+        }
     }
-    while let Some(result) = tasks.join_next().await { result??; }
-    let message = format!("Transformation Batch Job finished successfully. {processed} records processed");
-    eprintln!("{message}");
-    if let Some(ipc) = &ipc {
-        ipc.send("status", Some("finished"), &message, Some(100));
-        ipc.send("audit", None, &message, None);
-    }
-    Ok(())
 }
 
 fn parse_job_args() -> Result<JobArgs> {
