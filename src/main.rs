@@ -19,7 +19,7 @@ use std::{
 };
 use tokio::{signal, task::JoinSet};
 
-const APP_NAME: &str = "Transformation Engine";
+const APP_NAME: &str = "Transformation Engine (main)";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Deserialize, Default)]
@@ -140,6 +140,10 @@ async fn run() -> Result<()> {
     let pool = Arc::new(connect(&database, args.workers).await?);
     let rules = Arc::new(load_rules(&pool).await?);
     eprintln!("Loaded {} sources, {} targets, {} rules", rules.sources.len(), rules.target_fields.len(), rules.rules.len());
+    
+    let start_msg = format!("{} ({}) started for topic {}", APP_NAME, VERSION, args.topic);
+    let _ = sqlx::query("INSERT INTO system_logs (level, component, message) VALUES ('INFO', 'transformation-engine', $1)")
+        .bind(&start_msg).execute(&*pool).await;
 
     let master_key = master_key();
     let wrapped_key = match topic_wrapped_key(&pool, &args.topic).await {
@@ -196,6 +200,8 @@ async fn run() -> Result<()> {
                 ipc.send("status", Some("finished"), &message, Some(100));
                 ipc.send("audit", None, &message, None);
             }
+            let _ = sqlx::query("INSERT INTO system_logs (level, component, message) VALUES ('INFO', 'transformation-engine', $1)")
+                .bind(&message).execute(&*pool).await;
             Ok(())
         }
         Err(e) => {
