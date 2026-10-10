@@ -115,6 +115,21 @@ The configuration is stored in the database as a JSON array in the `validation_c
 
 _(Explanation: The engine guarantees that the data is provided and ensures it strictly matches an email regex pattern. Note that the `email` rule already does this natively, this is just to demonstrate parameters)._
 
+
+_check for valid German date format (dd.mm.yyyy):_
+```json
+[
+      {
+        "name": "regex_match",
+        "parameters": {
+          "pattern": "^(0[1-9]|[12][0-9]|3[01])\\.(0[1-9]|1[012])\\.(19|20)\\d{2}$"
+        }
+      }
+    ]
+```
+
+
+
 ## Summary of Execution Flow
 
 1. **Source Data Extraction** -> 2. **Apply Transformation Chain** -> 3. **Apply Validation Chain** -> 4. **Map to Target Field**
