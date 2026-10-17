@@ -544,6 +544,54 @@ mod tests {
         assert!(errors.iter().any(|e| e.rule_name == "required" && e.failed_field == "last_name"), "{errors:?}");
     }
 
+    fn steps(value: Value) -> Vec<RuleStep> { serde_json::from_value(value).unwrap() }
+
+    #[test]
+    fn transformation_and_validation_chains_are_applied_per_source() {
+        let mut rules = two_source_rules();
+        rules.target_fields.insert("t-birth".into(), target("t-birth", "birth_date", "text"));
+        rules.target_fields.insert("t-zip".into(), target("t-zip", "zip", "int"));
+        // Multi-step transformation chain + validation chain (as stored in mapping_rule)
+        let mut birth = rule("s-ora", "t-birth", "BIRTH", 1);
+        birth.transformations = steps(json!([
+            {"name": "trim_whitespace", "parameters": {}},
+            {"name": "parse_date", "parameters": {"input_format": "2006-01-02", "output_format": "02.01.2006"}},
+            {"name": "default_value", "parameters": {"value": "01.01.1900"}}
+        ]));
+        birth.validations = steps(json!([
+            {"name": "not_null", "parameters": {}},
+            {"name": "regex_match", "parameters": {"pattern": "^\\d{2}\\.\\d{2}\\.\\d{4}$"}}
+        ]));
+        rules.rules.push(birth);
+        let mut zip = rule("s-pg", "t-zip", "PLZ", 1);
+        zip.transformations = steps(json!([
+            {"name": "regex_replace", "parameters": {"pattern": "[^0-9]", "replace": ""}},
+            {"name": "string_split", "parameters": {"separator": ",", "index": 0}}
+        ]));
+        zip.validations = steps(json!([{"name": "range_check", "parameters": {"min": 1000, "max": 99999}}]));
+        rules.rules.push(zip);
+
+        let input = sources(&[
+            ("ORA_EMPLOYEE", json!({"MAIL": "a@b.de", "LASTNAME": "Doe", "BIRTH": " 1990-12-31 "})),
+            ("PG_EMPLOYEE", json!({"PLZ": "D-80331"})),
+        ]);
+        let (result, errors) = process_sources(&input, "Employee", &rules, &[1; 32], &[]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(result["birth_date"], json!("31.12.1990"));
+        assert_eq!(result["zip"], json!(80331)); // transformed, validated, then cast to schema type int
+
+        // An empty source value runs through default_value; a failing validation rejects the record.
+        let input = sources(&[
+            ("ORA_EMPLOYEE", json!({"MAIL": "a@b.de", "LASTNAME": "Doe", "BIRTH": ""})),
+            ("PG_EMPLOYEE", json!({"PLZ": "12"})),
+        ]);
+        let (result, errors) = process_sources(&input, "Employee", &rules, &[1; 32], &[]);
+        assert_eq!(result["birth_date"], json!("01.01.1900"));
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!((errors[0].failed_field.as_str(), errors[0].rule_name.as_str()), ("PLZ", "validation"));
+        assert!(errors[0].error_message.contains("step range_check failed: value is less than minimum 1000"), "{}", errors[0].error_message);
+    }
+
     #[test]
     fn date_and_jsonb_casts() {
         assert_eq!(cast_value(json!("31.12.1990"), "date").unwrap(), json!("1990-12-31"));
