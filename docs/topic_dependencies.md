@@ -17,6 +17,8 @@ This table serves as a configuration and rule set for when a dataset is consider
 - topic: The name of the business topic (e.g., EmployeeData).
 - required_sources: An array (a list) of strings that exactly defines which source systems (e.g., ['SAP_HR', 'ActiveDirectory']) must deliver data for this topic.
 
+The transformation job reads this table (topic compared case-insensitively). `required_sources` in the job arguments overrides it; if neither is set, the job aborts.
+
 ## 3. How it Works at Runtime (Stateful Aggregation)
 
 The Transformation Layer operates as a so-called Stateful Aggregator. The process runs in the following steps:
@@ -30,6 +32,7 @@ The Transformation Layer operates as a so-called Stateful Aggregator. The proces
    - The fragments are merged into a large JSON dataset (the Golden Record).
    - Only then are the mappings, transformations, and validation rules applied.
    - After successful processing, the final dataset is (partially) encrypted again and written to the target_fragments table.
+5. Re-aggregation: if a source later delivers a new fragment for an already processed correlation_id, the required sources count as complete via their latest processed fragments. The new fragment is merged with the latest processed fragment of every other source, and the Golden Record is written again. Only fragments still present in raw_ingestion (see the maintenance retention) can be used.
 
 ### Correlation ID
 

@@ -2,6 +2,36 @@
 
 All notable changes to the Transformation Layer will be documented in this file.
 
+## [v1.1.0] - 2026-10-17
+
+Hardening ([#7](https://github.com/Zheng-Bote/mitm_transformation_main/issues/7)).
+
+### Added
+
+- **Mapping per source:** each source system is mapped with its own `mapping_source` rules; `mapping_rule.priority` resolves fields mapped by several sources (lowest first, first non-empty value).
+- **Re-aggregation:** single-source updates of an already processed `correlation_id` are merged with the latest processed fragments of the other sources.
+- **`topic_dependencies`** is read for the required sources (JobArgs `required_sources` overrides).
+- Target types `date` (ISO `YYYY-MM-DD`) and `jsonb`; `is_required` is enforced.
+- Per-topic advisory lock; SIGTERM handling; start/end reset of `processing` rows.
+- Final counts (processed / failed validation / errors) via IPC and `system_logs`; exit code `2` if records failed.
+
+### Changed
+
+- **Breaking:** `required_sources` no longer defaults to `["ORA_EMPLOYEE"]`; it comes from `topic_dependencies` or the job arguments.
+- `target_fragments.topic` uses the canonical `delivery_targets.topic` spelling.
+- IPC events use one persistent async socket connection.
+- `bool` cast accepts `1/0` and any case; `min_length`/`max_length` count characters; `range_check` accepts numeric strings; `parse_date` accepts Go `… -0700 MST`; regexes are compiled once.
+- Error messages contain the full cause chain.
+- Cargo metadata (repository URLs) and SPDX headers.
+
+### Fixed
+
+- **Data loss:** status updates only touch the claimed fragments (previously all fragments of the `correlation_id`, including newly arrived ones and other topics).
+- **Security:** no fallback to an unpersisted DEK when the delivery key is missing (fields became undecryptable); `MASTER_KEY` must be exactly 32 bytes; no `env::set_var` for secrets.
+- **Security:** field values are no longer included in `transformation_errors` (date format and JSON parse errors).
+- Nondeterministic Golden Records (random mapping source, arbitrary merge order).
+- Rows stuck in `processing` after SIGTERM or task errors.
+
 ## [v0.20.0] - 2026-09-16
 
 ### Changed
