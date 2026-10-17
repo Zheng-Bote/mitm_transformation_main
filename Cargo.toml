@@ -1,12 +1,12 @@
 [package]
 name = "mitm-transformer"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "MitM transformation-layer scheduled batch job"
-homepage = "https://github.com/Zheng-Bote/mitm_transformation"
-repository = "https://github.com/Zheng-Bote/mitm_transformation/release/latest"
-documentation = "https://github.com/Zheng-Bote/mitm_transformation/docs"
+homepage = "https://github.com/Zheng-Bote/mitm_transformation_main"
+repository = "https://github.com/Zheng-Bote/mitm_transformation_main"
+documentation = "https://github.com/Zheng-Bote/mitm_transformation_main/tree/main/docs"
 keywords = ["mitm-2", "transformation-layer"]
 
 [dependencies]
@@ -18,7 +18,7 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio-rustls", "uuid", "json"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
 rand = "0.8"
