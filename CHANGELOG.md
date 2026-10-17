@@ -11,7 +11,7 @@ Hardening ([#7](https://github.com/Zheng-Bote/mitm_transformation_main/issues/7)
 - **Mapping per source:** each source system is mapped with its own `mapping_source` rules; `mapping_rule.priority` resolves fields mapped by several sources (lowest first, first non-empty value).
 - **Re-aggregation:** single-source updates of an already processed `correlation_id` are merged with the latest processed fragments of the other sources.
 - **`topic_dependencies`** is read for the required sources (JobArgs `required_sources` overrides).
-- Target types `date` (ISO `YYYY-MM-DD`) and `jsonb`; `is_required` is enforced.
+- Target types `date` and `jsonb`; `is_required` is enforced. For `date`, a `parse_date` step in the transformation chain defines the output format (the cast only validates); otherwise the value is normalized to ISO `YYYY-MM-DD`.
 - Per-topic advisory lock; SIGTERM handling; start/end reset of `processing` rows.
 - Final counts (processed / failed validation / errors) via IPC and `system_logs`; exit code `2` if records failed.
 

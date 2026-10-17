@@ -66,9 +66,9 @@ ARGS_JSON='{"workers": 5, "batch_size": 500, "retry_failed": false, "topic": "Em
 
 ### Target Data Types
 
-`text`/`string`/`varchar`, `int`, `float`/`numeric`, `bool` (`true/false/1/0`, any case), `date` (normalized to ISO `YYYY-MM-DD`) and `jsonb` (objects/arrays unchanged, JSON strings parsed). Target fields with `is_required = true` must not be empty.
+`text`/`string`/`varchar`, `int`, `float`/`numeric`, `bool` (`true/false/1/0`, any case), `date` and `jsonb` (objects/arrays unchanged, JSON strings parsed). Target fields with `is_required = true` must not be empty.
 
-**Note:** `date` always produces `YYYY-MM-DD`. If the target expects another format (e.g. Cority `dateFormat: dd.mm.yyyy`), use data type `text` with a `parse_date` transformation instead.
+The schema cast always runs after the transformation and validation chains. For `date`, the chain has precedence: if the rule's transformation chain contains `parse_date`, its output format is kept (e.g. `02.01.2006` for Cority `dateFormat: dd.mm.yyyy`) and the cast only checks that the value is a valid date. Without `parse_date` in the chain, the value is normalized to ISO `YYYY-MM-DD`.
 
 ## Dead Letter Queue (DLQ) & Reprocessing
 

@@ -21,7 +21,7 @@ Make the transformation job safe and deterministic:
 |---|---|
 | D1 | **Re-aggregation:** a new fragment of an already processed `correlation_id` is merged with the latest `processed` fragment of every other source system of that `correlation_id`, so a complete Golden Record is produced (Cority upsert overwrites). |
 | D2/D3 | **Mapping per source:** each source system's payload is mapped with the rules of its own `mapping_source` (`name = source_system`, same topic). If several sources map the same target field, the lowest `mapping_rule.priority` with a non-empty value wins (tie: source name). |
-| D4 | **`date`** target type: normalized to ISO `YYYY-MM-DD` (auto-detect of the known formats). **`jsonb`**: objects/arrays unchanged, JSON strings parsed. |
+| D4 | **`date`** target type: if the rule's transformation chain contains `parse_date`, the chain's format is kept and the cast only validates the date; otherwise it is normalized to ISO `YYYY-MM-DD` (auto-detect of the known formats). **`jsonb`**: objects/arrays unchanged, JSON strings parsed. *(Refined by the Operator: the transformation/validation chains keep precedence.)* |
 | D5 | **Required sources:** from `topic_dependencies`; `required_sources` in the JobArgs overrides; if neither is set, the job aborts. |
 
 ## 3. Scope
@@ -50,7 +50,7 @@ Make the transformation job safe and deterministic:
 | R4 | Fragments of one source **shall** be merged oldest → newest (`created_at`). Target fields **shall** be resolved by `priority` (lowest first, first non-empty value, tie by source name). |
 | R5 | **When** SIGTERM or SIGINT is received, the system **shall** stop claiming and spawning, finish in-flight aggregates, and reset unprocessed `processing` rows of the topic to the run's source status. **When** the job starts, it **shall** reset orphaned `processing` rows of its topic to `pending`. **If** an aggregate fails with a DB error, **then** the job **shall** continue and count it as an error. |
 | R6 | **When** pending fragments exist for a `correlation_id` whose required sources are complete counting `processed` fragments, the system **shall** claim the pending fragments and re-aggregate them with the latest `processed` fragment of every other source system (D1). |
-| R7 | The system **shall** support target types `date` (ISO `YYYY-MM-DD`) and `jsonb` (D4). |
+| R7 | The system **shall** support target types `date` and `jsonb` (D4). **Where** the transformation chain contains `parse_date`, the `date` cast **shall** only validate and keep the chain's format; otherwise it **shall** normalize to ISO `YYYY-MM-DD`. |
 | R8 | Stored error messages **shall** contain the full cause chain and **shall not** contain field values. |
 | R9 | **If** the decoded `MASTER_KEY` is not exactly 32 bytes, **then** the system **shall** exit with code 1. |
 | R10 | IPC credentials **shall** be kept in variables; `env::set_var` **shall not** be used. |

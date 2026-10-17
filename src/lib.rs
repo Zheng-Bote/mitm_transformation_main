@@ -209,7 +209,9 @@ fn map_rule(payload: &Map<String, Value>, rule: &MappingRule, target: &MappingTa
         errors.push(pipeline_error(rule, "validation", error));
         return None;
     }
-    match cast_to_schema(value, &target.data_type) {
+    // A parse_date step in the chain defines the date format; the schema cast then only validates it.
+    let chain_formats_date = rule.transformations.iter().any(|step| step.name == "parse_date");
+    match cast_to_schema(value, &target.data_type, chain_formats_date) {
         Ok(value) => Some(value),
         Err(error) => { errors.push(pipeline_error(rule, "auto_cast", error)); None }
     }
@@ -362,8 +364,15 @@ fn go_layout(format: &str) -> Result<&str> {
     }
 }
 
-fn cast_to_schema(value: Value, target_type: &str) -> Result<Value> {
+fn cast_to_schema(value: Value, target_type: &str, keep_date_format: bool) -> Result<Value> {
     if value.is_null() || target_type.is_empty() { return Ok(value) }
+    if keep_date_format && target_type.eq_ignore_ascii_case("date") {
+        // Keep the format produced by the chain, but it must still be a valid date.
+        if !is_empty(&value) {
+            autodetect_date(value_to_string(&value).trim()).context("failed to cast to date")?;
+        }
+        return Ok(value);
+    }
     cast_value(value, target_type)
 }
 
@@ -601,6 +610,34 @@ mod tests {
         assert_eq!(cast_value(json!("{\"a\":1}"), "jsonb").unwrap(), json!({"a": 1}));
         assert_eq!(cast_value(json!({"a": 1}), "jsonb").unwrap(), json!({"a": 1}));
         assert!(cast_value(json!("{broken"), "jsonb").is_err());
+    }
+
+    #[test]
+    fn date_schema_keeps_chain_format_and_normalizes_otherwise() {
+        let mut rules = RuleSet::default();
+        rules.sources.insert("s".into(), MappingSource { id: "s".into(), name: "ORA_EMPLOYEE".into(), topic: "Employee".into() });
+        rules.target_fields.insert("t-birth".into(), target("t-birth", "birth_date", "date"));
+        rules.target_fields.insert("t-entry".into(), target("t-entry", "entry_date", "date"));
+        // birth_date: chain formats the date (dd.mm.yyyy) -> the cast only validates
+        let mut birth = rule("s", "t-birth", "BIRTH", 1);
+        birth.transformations = steps(json!([
+            {"name": "parse_date", "parameters": {"input_format": "2006-01-02", "output_format": "02.01.2006"}},
+            {"name": "default_value", "parameters": {"value": "not a date"}}
+        ]));
+        rules.rules.push(birth);
+        // entry_date: no parse_date in the chain -> normalized to ISO
+        rules.rules.push(rule("s", "t-entry", "ENTRY", 1));
+
+        let (result, errors) = process_sources(&sources(&[("ORA_EMPLOYEE", json!({"BIRTH": "1990-12-31", "ENTRY": "01.03.2020"}))]), "Employee", &rules, &[1; 32], &[]);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(result["birth_date"], json!("31.12.1990"));
+        assert_eq!(result["entry_date"], json!("2020-03-01"));
+
+        // The chain result must still be a valid date (default_value yields an invalid one here)
+        let (_, errors) = process_sources(&sources(&[("ORA_EMPLOYEE", json!({"BIRTH": "", "ENTRY": ""}))]), "Employee", &rules, &[1; 32], &[]);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!((errors[0].failed_field.as_str(), errors[0].rule_name.as_str()), ("BIRTH", "auto_cast"));
+        assert!(!errors[0].error_message.contains("not a date"));
     }
 
     #[test]
