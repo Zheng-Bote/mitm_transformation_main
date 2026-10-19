@@ -81,6 +81,50 @@ _valid date formats:_
 	"02.01.06",   // dd.mm.yy
 ```
 
+_escape JSON special chars_
+
+```json
+[
+      {
+        "name": "regex_replace",
+        "parameters": {
+          "pattern": "\\\\",
+          "replace": "\\\\"
+        }
+      },
+      {
+        "name": "regex_replace",
+        "parameters": {
+          "pattern": "\"",
+          "replace": "\\\""
+        }
+      },
+      {
+        "name": "regex_replace",
+        "parameters": {
+          "pattern": "\r",
+          "replace": "\\r"
+        }
+      },
+      {
+        "name": "regex_replace",
+        "parameters": {
+          "pattern": "\n",
+          "replace": "\\n"
+        }
+      },
+      {
+        "name": "regex_replace",
+        "parameters": {
+          "pattern": "\t",
+          "replace": "\\t"
+        }
+      }
+    ]
+```
+
+_(Explanation: Regarding the order: The backslash (\) must be escaped first; otherwise, the backslashes belonging to subsequent escape sequences (\", \n, \r, \t) would be escaped again in the next step.)_
+
 ---
 
 ## 2. Validations
