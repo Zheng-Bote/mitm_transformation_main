@@ -125,6 +125,10 @@ _escape JSON special chars_
 
 _(Explanation: Regarding the order: The backslash (\) must be escaped first; otherwise, the backslashes belonging to subsequent escape sequences (\", \n, \r, \t) would be escaped again in the next step.)_
 
+_Note on double-escaping:_
+
+If the target field is of type text/string and is subsequently stored in `target_fragments` as JSON-serialized data, `serde_json` will automatically escape special characters during the JSON serialization process. Therefore, you should only use this chain if the string value—within the target system itself—must arrive with its special characters already literally escaped (for example, for use in a downstream template or as a string embedded within a JSON payload).
+
 ---
 
 ## 2. Validations
