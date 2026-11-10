@@ -200,7 +200,18 @@ async fn run() -> Result<i32> {
     let db_config_json = scheduler_db_config.or_else(|| env::var("MITM_DB_CONFIG_JSON").ok());
     let master_key_input = scheduler_master_key.or_else(|| env::var("MASTER_KEY").ok()).unwrap_or_default();
 
-    let mut args = parse_job_args()?;
+    let mut args = match parse_job_args() {
+        Ok(args) => args,
+        Err(error) => {
+            // The IPC client needs the arguments for its prefix; fall back to the defaults.
+            let message = format!("Transformation Batch Job failed: {error:#}");
+            if let Some(ipc) = ipc_client(&JobArgs::default()) {
+                ipc.send("status", Some("failed"), &message, None).await;
+                ipc.send("audit", None, &audit_message("failed", &message), None).await;
+            }
+            return Err(error);
+        }
+    };
     args.batch_size = args.batch_size.max(1);
     args.workers = args.workers.max(1);
 
@@ -216,10 +227,15 @@ async fn run() -> Result<i32> {
         eprintln!("{message}");
         if let Some(ipc) = &ipc {
             ipc.send("status", Some("failed"), &message, None).await;
-            ipc.send("audit", None, &message, None).await;
+            ipc.send("audit", None, &audit_message("failed", &message), None).await;
         }
     }
     result
+}
+
+/// Audit text of a run result: failed runs get the `ERROR: ` prefix the monitor and log views rely on.
+fn audit_message(status: &str, message: &str) -> String {
+    if status == "failed" { format!("ERROR: {message}") } else { message.to_string() }
 }
 
 async fn run_job(args: &JobArgs, db_config_json: Option<&str>, master_key_input: &str, ipc: Option<&IpcClient>) -> Result<i32> {
@@ -327,7 +343,7 @@ async fn run_with_pool(args: &JobArgs, pool: &PgPool, master_key: Vec<u8>, ipc: 
     eprintln!("Transformation Batch Job {status}. {message}");
     if let Some(ipc) = ipc {
         ipc.send("status", Some(status), &message, Some(100)).await;
-        ipc.send("audit", None, &message, None).await;
+        ipc.send("audit", None, &audit_message(status, &message), None).await;
     }
     log_system(pool, level, &format!("Transformation Batch Job {status}. {message}")).await;
     drop(lock_conn);
@@ -640,6 +656,14 @@ mod tests {
         assert!(error.to_string().contains("secret-ssn-123"), "precondition: serde quotes the value");
         let message = json_error_message(&error);
         assert!(!message.contains("secret-ssn-123"), "{message}");
+    }
+
+    #[test]
+    fn failed_results_are_error_audits() {
+        let summary = "Topic Employee: 4686 records processed, 1 failed validation, 0 errors";
+        assert_eq!(audit_message("failed", summary), format!("ERROR: {summary}"));
+        assert_eq!(audit_message("finished", summary), summary);
+        assert_eq!(audit_message("cancelled", summary), summary);
     }
 
     #[test]

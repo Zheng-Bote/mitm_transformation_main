@@ -64,6 +64,8 @@ ARGS_JSON='{"workers": 5, "batch_size": 500, "retry_failed": false, "topic": "Em
 | `1` | Fatal error (configuration, `MASTER_KEY`, missing delivery key or required sources, DB failure). |
 | `2` | Finished, but records failed validation or could not be processed (status `failed`). |
 
+Every failed run (exit code `1` or `2`) sends a `failed` status event and an audit event prefixed with `ERROR: `, e.g. `ERROR: Topic Employee: 4686 records processed, 1 failed validation, 0 errors`. This also applies to unparsable job arguments. `mitm_maintenance_monitor` takes the reason of its failure mails from these `ERROR:` lines.
+
 ### Target Data Types
 
 `text`/`string`/`varchar`, `int`, `float`/`numeric`, `bool` (`true/false/1/0`, any case), `date` and `jsonb` (objects/arrays unchanged, JSON strings parsed). Target fields with `is_required = true` must not be empty.
