@@ -2,6 +2,15 @@
 
 All notable changes to the Transformation Layer will be documented in this file.
 
+## [v1.1.1] - 2026-11-10
+
+Error audit events ([#10](https://github.com/Zheng-Bote/mitm_transformation_main/issues/10)).
+
+### Fixed
+
+- **`ERROR:` audit events:** failed runs (exit code `1` or `2`) send their audit event with the `ERROR: ` prefix, e.g. `ERROR: Topic Employee: 4686 records processed, 1 failed validation, 0 errors`, like the collectors and the scheduler.
+- **Unparsable job arguments** are reported to the scheduler (`failed` status event and `ERROR:` audit event) instead of only on STDERR.
+
 ## [v1.1.0] - 2026-10-17
 
 Hardening ([#7](https://github.com/Zheng-Bote/mitm_transformation_main/issues/7)).
